@@ -585,19 +585,27 @@ Use the **Simulate NRS outcome** control on the start page to exercise success, 
 
 ---
 
-## CESA (Self Assessment) lookup
+## CESA (Self Assessment) tax history
 
-A small PoC that proves DDS can read Self Assessment data from CESA. Locally it calls [cesa-stub](https://github.com/hmrc/cesa-stub) over HTTP.
+CESA holds a taxpayer's Self Assessment history. In DDS it comes **before** the calculation: it shows what tax was
+charged in past years, what the taxpayer has already paid, what they still owe, and any enquiry or hold on
+repayments. That history then feeds the calculation ("we can see you paid £X for this year").
 
-### How it works
+```
+/cesa?utr=...                         per tax year: return filed?  income declared  tax charged  paid  still owed
+                                      + open enquiries and No Repayment Signals (NRS 1-7)
+        │  "Start a calculation with this history"
+        ▼
+/calculations/start-with-cesa?utr=    starts Option 2 with the history on the session and fills in, per tax year:
+                                        alreadyDeclaredIncome  <- income declared
+                                        taxAlreadyPaid         <- tax paid
+                                        selfEmploymentBusinessName <- trade name
+        ▼
+calculation                           tax due = tax on (declared + disclosed income) - tax already paid
+```
 
-For a UTR, `CesaLookupService` calls these through `CesaConnector`:
-
-1. `GET /self-assessment/individual/:utr`, which returns a `links` object.
-2. Every link in that object, and the links inside those responses, one level further. For example `designatory-details` leads on to `taxpayer`, `communication` and so on.
-3. `GET .../calendar` and `GET .../account/futureliabilities`, in parallel.
-
-The page shows each call's URL, status and raw (pretty-printed) body. The connector only follows relative links, and always against the configured CESA host. Set `cesa.path-prefix = "/ods-sa/v1"` to use the ODS routes instead, which cesa-stub also serves.
+Locally CESA is [cesa-stub](https://github.com/hmrc/cesa-stub) on `:8084`. Its `dds-calc-user` test user has
+2015-16 to 2017-18 with tax charged, paid and owed, an open S9A enquiry and NRS 4/5 on 2016-17.
 
 ### Trying it locally
 
@@ -609,16 +617,33 @@ sbt "run 8084"
 sbt run
 ```
 
-Open `http://localhost:9000/digital-disclosure-service-alpha-frontend/cesa`. The page lists UTRs that have test data in the stub. `it-full-valid-user` returns every resource; `5040200101` and `5040200102` return a 404 and a 500 from the calendar. To watch the requests arrive, open the stub's request log at `http://localhost:8084/cesa-stub/requests`.
+Open `http://localhost:9000/digital-disclosure-service-alpha-frontend/cesa`, choose `dds-calc-user`, then
+**Start a calculation with this history**. On the "income already declared" and "tax already paid" questions for
+each year the calculation shows CESA's figures and has filled them in.
 
-If the stub is not running, each call shows "No response" with a hint to start it.
+### How it works
+
+- `TaxHistorySource` — where the history comes from. `CesaTaxHistoryService` implements it against CESA today; the
+  Individual Self Assessment Liabilities API (ETMP) would replace it after the CESA migration without page changes.
+- `CesaTaxHistoryService` — GETs the root, calendar, returns, `account/tax-years`, `signals`, taxpayer and trade
+  through `CesaConnector`; `CesaTaxHistoryParser` maps them to the calculation's tax years (`1617` → `2016-17`) and
+  income types (`self_employment` → `selfEmployment`).
+- `CesaPrefill` — the answers CESA fills in. `CalculationsSessionService.attachCesaHistory` stores the history on
+  the session (`SessionState.cesa`) and puts those answers back after config saves and resets.
+- Calculation spec **1.6.0** counts `alreadyDeclaredIncome` as income, so allowances and bands apply to the whole
+  year and `taxAlreadyPaid` is subtracted from the tax on all of it.
+- `account/tax-years` and `signals` are shapes invented for the alpha; the real ones depend on the ETMP API.
+- **No Repayment Signals** (NRS 1-7) are repayment holds; they are not the Non-Repudiation Store PoC above.
+  The alpha shows them; it does not yet block repayments or change the penalty for an open enquiry.
 
 ### Key code
 
-- `CesaConnector` — raw GETs to `microservice.services.cesa` (`:8084` locally)
-- `CesaLookupService` — root resource, link-following, calendar and future liabilities
-- `CesaController` / `CesaLookupPage` — `GET /cesa?utr=...`
-- `it/.../CesaLookupIntegrationSpec` — WireMock stands in for the stub (`sbt it/test`)
+- `controllers/CesaController` / `views/CesaLookupPage` — `GET /cesa?utr=...`
+- `calculations/downstream/` — `TaxHistorySource`, `CesaTaxHistoryService`, `CesaTaxHistoryParser`, `CesaPrefill`
+- `calculations/model/CesaTaxHistory` — the history model (years, payments, enquiries, repayment signals)
+- `CalculationsController.startWithCesa` — starts the calculation from the CESA page
+- Tests: `CesaTaxHistoryParserSpec`, `CesaPrefillSpec`, `CalculationsSessionServiceSpec`, `CalculationsControllerSpec`,
+  `it/.../CesaTaxHistoryIntegrationSpec` (WireMock stands in for cesa-stub)
 
 ---
 
@@ -655,7 +680,7 @@ app/
       PaymentsController.scala         — Raise charge, start payment, persist + handle return
       NrsController.scala              — NRS demo hub, submit, result, retry
       CalculationsController.scala     — Config, task list, questions, CYA and result flow
-      CesaController.scala             — CESA lookup by UTR
+      CesaController.scala             — CESA tax history page by UTR
       actions/
         AuthenticatedAction.scala      — Requires a session; redirects to sign-in otherwise
     models/
@@ -671,7 +696,6 @@ app/
       NrsJourneyRepository.scala       — MongoDB repository for NRS journeys (TTL index)
     services/
       NrsEvidenceService.scala         — Build payload, SHA-256, base64 encode
-      CesaLookupService.scala          — Follows CESA links for a UTR
     views/
       UpscanDemoPage.scala.html        — Upscan landing page
       UserUploadPage.scala.html        — GDS file upload page (form posts to S3)
@@ -683,7 +707,7 @@ app/
       NrsDemoPage.scala.html           — NRS landing page
       NrsStartPage.scala.html          — Declaration + disclosure form
       NrsResultPage.scala.html         — NRS result page (Submitted / Queued / Failed)
-      CesaLookupPage.scala.html        — UTR lookup + raw CESA responses
+      CesaLookupPage.scala.html        — CESA tax history by year, enquiries and repayment holds
       calculations/                    — Config, task list, question, graph and result pages
 conf/
   app.routes                           — Routes (incl. CSRF-exempt Upscan callback)

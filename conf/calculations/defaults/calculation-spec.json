@@ -1,8 +1,14 @@
 {
   "id" : "income-tax-design-focus",
-  "version" : "1.5.0",
-  "description" : "Design-focus prototype liability (v1.5.0): sum additional income from the mural category tree; deduct SE/property expenses or allowances; apply personal allowance (with taper) and optional Blind Person’s Allowance; apply basic/higher rate bands; then deduct tax already paid / taken off at source. Capital gains and foreign tax credits are collected in the journey but are not applied in this simplified estimate. The penalty is an onshore, prompted failure to notify: telling (up to 30%), helping (up to 40%) and giving (up to 30%) narrow the 30% to 20% range. A reasonable excuse is no penalty. The 3 year rule is not applied.",
+  "version" : "1.6.0",
+  "description" : "Design-focus prototype liability (v1.6.0): add income already declared for the year (e.g. from CESA) to the additional income from the mural category tree, so allowances and bands apply to the whole year; deduct SE/property expenses or allowances; apply personal allowance (with taper) and optional Blind Person’s Allowance; apply basic/higher rate bands; then deduct tax already paid for the year (e.g. from CESA) / taken off at source. Capital gains and foreign tax credits are collected in the journey but are not applied in this simplified estimate. The penalty is an onshore, prompted failure to notify: telling (up to 30%), helping (up to 40%) and giving (up to 30%) narrow the 30% to 20% range. A reasonable excuse is no penalty. The 3 year rule is not applied.",
   "incomeComponents" : [ {
+    "id" : "alreadyDeclaredIncome",
+    "label" : "Already_declared_income",
+    "kind" : "amount",
+    "field" : "alreadyDeclaredIncome",
+    "floorAtZero" : true
+  }, {
     "id" : "employmentIncome",
     "label" : "Employment_income",
     "kind" : "amount",

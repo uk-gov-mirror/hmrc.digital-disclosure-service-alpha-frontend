@@ -21,6 +21,7 @@ import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.{Action, AnyContent, MessagesControllerComponents, Request, Result}
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.config.ConfigJsonHighlight
+import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.downstream.TaxHistorySource
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.engine.{AnswerValidator, LiabilityCalculator, QuestionEngine}
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.graph.GraphBuilder
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.{
@@ -45,6 +46,7 @@ final case class CalculationsConfigFormData(rateJson: String, questionJson: Stri
 class CalculationsController @Inject()(
   mcc         : MessagesControllerComponents,
   sessions    : CalculationsSessionService,
+  taxHistory  : TaxHistorySource,
   homePage    : HomePage,
   configPage  : ConfigPage,
   taskListPage: TaskListPage,
@@ -57,6 +59,8 @@ class CalculationsController @Inject()(
 
   private val sessionKey = "calculationsId"
   private val infoFlash = "calculations-info"
+
+  private val UtrPattern = "^[A-Za-z0-9-]{1,64}$".r
 
   private val configForm: Form[CalculationsConfigFormData] = Form(
     mapping(
@@ -88,6 +92,30 @@ class CalculationsController @Inject()(
               val redirect = Redirect(landing).withSession(request.session + (sessionKey -> state.id))
               if option.fetchesDownstreamRates then redirect.flashing(infoFlash -> "calculations.flash.downstreamFetched")
               else redirect
+
+  /**
+    * From the CESA page: starts an Option 2 calculation for this UTR with its CESA history on the session, filling
+    * in the income already declared, the tax already paid and the business name for each tax year.
+    */
+  def startWithCesa(utr: String): Action[AnyContent] =
+    Action.async:
+      implicit request =>
+        given HeaderCarrier = HeaderCarrier()
+        if !UtrPattern.matches(utr) then Future.successful(Redirect(routes.CesaController.lookup(None)))
+        else
+          val option = ArchitectureOption.RatesAndQuestions
+          sessions.start(option).flatMap: state =>
+            taxHistory.fetch(utr, state.rateCatalog.taxYears).map:
+              case Left(_) =>
+                Redirect(routes.CesaController.lookup(Some(utr)))
+              case Right(history) =>
+                sessions.attachCesaHistory(state, history)
+                val landing =
+                  if option.landsOnTaskList then routes.CalculationsController.taskList
+                  else routes.CalculationsController.config
+                Redirect(landing)
+                  .withSession(request.session + (sessionKey -> state.id))
+                  .flashing(infoFlash -> "calculations.flash.cesaAttached")
 
   val config: Action[AnyContent] =
     Action:

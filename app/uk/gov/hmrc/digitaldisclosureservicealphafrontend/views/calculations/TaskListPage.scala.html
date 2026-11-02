@@ -61,6 +61,16 @@
         )}</p>
     }
 
+    @state.cesa.map { history =>
+        <div class="govuk-inset-text">
+            <p class="govuk-body">@{messages("calculations.cesa.taskList", history.taxpayerName.getOrElse(history.utr), history.utr, history.prefilled.size)}</p>
+            @if(history.repaymentSignals.nonEmpty) {
+                <p class="govuk-body"><strong>@{messages("calculations.cesa.taskList.holds", history.repaymentSignals.map(_.label).distinct.mkString(", "))}</strong></p>
+            }
+            <a class="govuk-link" href="@uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CesaController.lookup(Some(history.utr))">@{messages("calculations.cesa.taskList.view")}</a>
+        </div>
+    }
+
     @for(section <- model.sections) {
         <h2 class="govuk-heading-m">@{
             if(section.titleArgs.isEmpty) messages(section.titleKey)

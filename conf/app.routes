@@ -39,6 +39,7 @@ POST       /nrs/retry/:id           uk.gov.hmrc.digitaldisclosureservicealphafro
 
 # Config-driven calculations prototype
 GET        /calculations                    uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.CalculationsController.home
+GET        /calculations/start-with-cesa  uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.CalculationsController.startWithCesa(utr: String)
 GET        /calculations/start/:optionId    uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.CalculationsController.start(optionId: String)
 GET        /calculations/config             uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.CalculationsController.config
 POST       /calculations/config             uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.CalculationsController.saveConfig

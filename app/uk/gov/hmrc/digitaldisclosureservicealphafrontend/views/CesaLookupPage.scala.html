@@ -14,75 +14,167 @@
  * limitations under the License.
  *@
 
-@import uk.gov.hmrc.digitaldisclosureservicealphafrontend.connectors.CesaCall
+@import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.downstream.CesaTaxHistoryParser
+@import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.format.Formats
+@import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.CesaTaxHistory
 
 @this(layout: Layout)
 
-@(cesaBaseUrl: String, utr: Option[String], errorKey: Option[String], calls: Seq[CesaCall])(implicit request: RequestHeader, messages: Messages)
+@(utr: Option[String], error: Option[String], history: Option[CesaTaxHistory], calculationYears: Seq[String])(implicit request: RequestHeader, messages: Messages)
+
+@lookupHref(u: String) = @{ uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CesaController.lookup(Some(u)).url }
+
+@amount(value: Option[BigDecimal]) = @{ value.map(Formats.gbp).getOrElse("–") }
+
+@incomeLabel(value: String) = @{ CesaTaxHistoryParser.IncomeTypeLabels.get(value).map(messages(_)).getOrElse(value) }
 
 @sampleUtrs = @{
     Seq(
-        "it-full-valid-user" -> "cesa.lookup.sample.fullUser",
-        "1097172561"         -> "cesa.lookup.sample.accountAndDetails",
-        "1555369047"         -> "cesa.lookup.sample.upToDate",
-        "1555369048"         -> "cesa.lookup.sample.delinquent",
-        "1555369057"         -> "cesa.lookup.sample.lateWithLiability",
-        "5040200101"         -> "cesa.lookup.sample.calendar404",
-        "5040200102"         -> "cesa.lookup.sample.calendar500",
-        "it-account-summary-bad-request" -> "cesa.lookup.sample.accountSummary400"
+        "dds-calc-user"                -> "cesa.sample.ddsCalcUser",
+        "sa-user-all-return-scenarios" -> "cesa.sample.returnsOnly",
+        "1097172561"                   -> "cesa.sample.noHistory"
     )
 }
 
-@tagClass(status: Option[Int]) = @{
-    status match {
-        case Some(s) if s >= 200 && s < 300 => "govuk-tag--green"
-        case Some(s) if s >= 400 && s < 500 => "govuk-tag--yellow"
-        case _                              => "govuk-tag--red"
-    }
-}
-
-@layout(pageTitle = Some(messages("cesa.lookup.title")), fullWidth = true) {
-    <h1 class="govuk-heading-xl">@messages("cesa.lookup.heading")</h1>
-    <p class="govuk-body-l">@messages("cesa.lookup.intro")</p>
+@layout(pageTitle = Some(messages("cesa.title")), fullWidth = true) {
+    <h1 class="govuk-heading-xl">@messages("cesa.heading")</h1>
+    <p class="govuk-body-l">@messages("cesa.intro")</p>
 
     <form method="get" action="@uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CesaController.lookup(None)" novalidate>
-        <div class="govuk-form-group @if(errorKey.isDefined){govuk-form-group--error}">
-            <label class="govuk-label govuk-label--m" for="utr">@messages("cesa.lookup.utr.label")</label>
-            <div id="utr-hint" class="govuk-hint">@messages("cesa.lookup.utr.hint")</div>
-            @errorKey.map { key =>
-                <p id="utr-error" class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> @messages(key)</p>
+        <div class="govuk-form-group @if(error.isDefined){govuk-form-group--error}">
+            <label class="govuk-label govuk-label--m" for="utr">@messages("cesa.utr.label")</label>
+            <div id="utr-hint" class="govuk-hint">@messages("cesa.utr.hint")</div>
+            @error.map { err =>
+                <p id="utr-error" class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> @err</p>
             }
-            <input class="govuk-input govuk-input--width-20 @if(errorKey.isDefined){govuk-input--error}" id="utr" name="utr" type="text" value="@utr.getOrElse("")" aria-describedby="utr-hint">
+            <input class="govuk-input govuk-input--width-20 @if(error.isDefined){govuk-input--error}" id="utr" name="utr" type="text" value="@utr.getOrElse("")" aria-describedby="utr-hint">
         </div>
-        <button type="submit" class="govuk-button" data-module="govuk-button">@messages("cesa.lookup.button")</button>
+        <button type="submit" class="govuk-button" data-module="govuk-button">@messages("cesa.button")</button>
     </form>
 
-    <details class="govuk-details" @if(calls.isEmpty){open}>
+    <details class="govuk-details" @if(history.isEmpty){open}>
         <summary class="govuk-details__summary">
-            <span class="govuk-details__summary-text">@messages("cesa.lookup.samples.heading")</span>
+            <span class="govuk-details__summary-text">@messages("cesa.samples.heading")</span>
         </summary>
         <div class="govuk-details__text">
             <ul class="govuk-list">
             @for((sampleUtr, descKey) <- sampleUtrs) {
-                <li><a class="govuk-link" href="@uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CesaController.lookup(Some(sampleUtr))">@sampleUtr</a> — @messages(descKey)</li>
+                <li><a class="govuk-link" href="@lookupHref(sampleUtr)">@sampleUtr</a> — @messages(descKey)</li>
             }
             </ul>
         </div>
     </details>
 
-    @if(calls.nonEmpty) {
-        <h2 class="govuk-heading-l">@messages("cesa.lookup.results.heading", utr.getOrElse(""))</h2>
-        <p class="govuk-body">@messages("cesa.lookup.results.summary", calls.count(_.isSuccess), calls.size)</p>
+    @history.map { h =>
+        <h2 class="govuk-heading-l govuk-!-margin-bottom-2">@h.taxpayerName.getOrElse(h.utr)</h2>
+        <p class="govuk-body-s">@messages("cesa.results.subheading", h.utr, h.source)</p>
 
-        @for(call <- calls) {
-            <div class="govuk-!-margin-bottom-6">
-                <h3 class="govuk-heading-s govuk-!-margin-bottom-1">@call.label <strong class="govuk-tag @tagClass(call.status)">@call.status.map(_.toString).getOrElse(messages("cesa.lookup.status.noResponse"))</strong></h3>
-                <p class="govuk-body-s govuk-!-margin-bottom-1"><code>GET @call.url</code></p>
-                @call.error.map { err => <p class="govuk-body govuk-error-message">@err</p> }
-                @if(call.body.nonEmpty) {
-                    <pre class="govuk-body-s cesa-json">@call.prettyBody</pre>
+        @if(!h.hasRecord) {
+            <p class="govuk-inset-text">@messages(if(h.knownTaxpayer) "cesa.results.noHistory" else "cesa.results.none")</p>
+        } else {
+            @h.tradeName.map { name =>
+                <p class="govuk-body">@messages("cesa.tradeName") <strong>@name</strong></p>
+            }
+
+            @if(h.repaymentSignals.nonEmpty) {
+                <div class="govuk-warning-text">
+                    <span class="govuk-warning-text__icon" aria-hidden="true">!</span>
+                    <div class="govuk-warning-text__text">
+                        <span class="govuk-visually-hidden">@messages("cesa.warning")</span>
+                        @messages("cesa.signals.heading")
+                        <ul class="govuk-list govuk-list--bullet govuk-!-margin-top-2">
+                        @for(s <- h.repaymentSignals) {
+                            <li>
+                                <strong>@s.label</strong>: @s.reason
+                                @s.taxYear.map { y => (@y) }
+                                @s.department.map { d => — @messages("cesa.signals.department", d) }
+                                @s.setDate.map { d => — @messages("cesa.signals.set", d) }
+                            </li>
+                        }
+                        </ul>
+                    </div>
+                </div>
+            }
+
+            @if(h.openEnquiries.nonEmpty) {
+                <div class="govuk-inset-text">
+                    <p class="govuk-body govuk-!-font-weight-bold">@messages("cesa.enquiries.heading")</p>
+                    <ul class="govuk-list govuk-list--bullet">
+                    @for((year, e) <- h.openEnquiries) {
+                        <li>
+                            @messages("cesa.enquiries.item", year, e.enquiryType.getOrElse("–"), e.openedDate.getOrElse("–"))
+                            @e.lastDateOfEnquiry.map { d => — @messages("cesa.enquiries.lde", d) }
+                        </li>
+                    }
+                    </ul>
+                </div>
+            }
+
+            <table class="govuk-table">
+                <caption class="govuk-table__caption govuk-table__caption--m">@messages("cesa.table.caption")</caption>
+                <thead class="govuk-table__head">
+                    <tr class="govuk-table__row">
+                        <th scope="col" class="govuk-table__header">@messages("cesa.table.year")</th>
+                        <th scope="col" class="govuk-table__header">@messages("cesa.table.return")</th>
+                        <th scope="col" class="govuk-table__header">@messages("cesa.table.declared")</th>
+                        <th scope="col" class="govuk-table__header govuk-table__header--numeric">@messages("cesa.table.charged")</th>
+                        <th scope="col" class="govuk-table__header govuk-table__header--numeric">@messages("cesa.table.paid")</th>
+                        <th scope="col" class="govuk-table__header govuk-table__header--numeric">@messages("cesa.table.owed")</th>
+                    </tr>
+                </thead>
+                <tbody class="govuk-table__body">
+                @for(year <- h.years) {
+                    <tr class="govuk-table__row">
+                        <th scope="row" class="govuk-table__header">
+                            @year.taxYear
+                            @if(calculationYears.contains(year.taxYear)) {
+                                <br><strong class="govuk-tag govuk-tag--blue">@messages("cesa.inCalculation")</strong>
+                            }
+                        </th>
+                        <td class="govuk-table__cell">
+                            @messages(year.returnStatusKey)
+                            @year.returnReceivedDate.map { d => <br><span class="govuk-body-s">@messages("cesa.return.received", d)</span> }
+                            @if(!year.returnFiled) {
+                                @year.filingDueDate.map { d => <br><span class="govuk-body-s">@messages("cesa.return.due", d)</span> }
+                            }
+                            @if(year.openEnquiries.nonEmpty) {
+                                <br><strong class="govuk-tag govuk-tag--orange">@messages("cesa.tag.enquiry")</strong>
+                            }
+                            @if(year.repaymentSignals.nonEmpty) {
+                                <br><strong class="govuk-tag govuk-tag--red">@messages("cesa.tag.noRepayment")</strong>
+                            }
+                        </td>
+                        <td class="govuk-table__cell">
+                            @year.declaredIncome.map { v => @Formats.gbp(v)<br> }
+                            @if(year.declaredIncomeTypes.nonEmpty) {
+                                <span class="govuk-body-s">@year.declaredIncomeTypes.map(incomeLabel).mkString(", ")</span>
+                            }
+                            @if(year.declaredIncome.isEmpty && year.declaredIncomeTypes.isEmpty) { – }
+                        </td>
+                        <td class="govuk-table__cell govuk-table__cell--numeric">@amount(year.taxCharged)</td>
+                        <td class="govuk-table__cell govuk-table__cell--numeric">
+                            @amount(year.taxPaid)
+                            @for(p <- year.payments) {
+                                <br><span class="govuk-body-s">@Formats.gbp(p.amount) @p.date.map { d => @messages("cesa.payment.on", d) }</span>
+                            }
+                        </td>
+                        <td class="govuk-table__cell govuk-table__cell--numeric">@amount(year.outstanding)</td>
+                    </tr>
                 }
-            </div>
+                    <tr class="govuk-table__row">
+                        <th scope="row" class="govuk-table__header" colspan="3">@messages("cesa.table.total")</th>
+                        <td class="govuk-table__cell govuk-table__cell--numeric"><strong>@amount(h.totalCharged)</strong></td>
+                        <td class="govuk-table__cell govuk-table__cell--numeric"><strong>@amount(h.totalPaid)</strong></td>
+                        <td class="govuk-table__cell govuk-table__cell--numeric"><strong>@amount(h.totalOutstanding)</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 class="govuk-heading-m">@messages("cesa.start.heading")</h2>
+            <p class="govuk-body">@messages("cesa.start.body", calculationYears.mkString(", "))</p>
+            <a href="@uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CalculationsController.startWithCesa(h.utr)" role="button" draggable="false" class="govuk-button" data-module="govuk-button">
+                @messages("cesa.start.button")
+            </a>
         }
     }
 }

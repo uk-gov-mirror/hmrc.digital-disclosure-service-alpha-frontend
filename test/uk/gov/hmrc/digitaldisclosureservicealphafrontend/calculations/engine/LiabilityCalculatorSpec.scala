@@ -48,7 +48,7 @@ class LiabilityCalculatorSpec extends AnyWordSpec with Matchers:
       val result = LiabilityCalculator.calculate(catalog, spec, answers)
 
       result.years.map(_.taxYear) shouldBe Seq("2015-16", "2017-18")
-      result.calculationVersion shouldBe "1.5.0"
+      result.calculationVersion shouldBe "1.6.0"
       result.years.map(_.penaltyAmount) shouldBe Seq(BigDecimal(0), BigDecimal(0))
       result.totalPenalty shouldBe BigDecimal("0.00")
       result.years.map(_.totalIncome) shouldBe Seq(BigDecimal(16500), BigDecimal(16500))

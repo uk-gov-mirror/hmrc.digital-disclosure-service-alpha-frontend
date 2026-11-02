@@ -73,6 +73,14 @@ class CesaConnector @Inject() (
   def futureLiabilities(utr: String)(using HeaderCarrier): Future[CesaCall] =
     get("Future liabilities", s"${individualPath(utr)}/account/futureliabilities")
 
+  /** The return CESA holds for one tax year. `taxYearEnd` is the year the tax year ends in (2016-17 -> 2017). */
+  def taxReturn(utr: String, taxYearEnd: Int)(using HeaderCarrier): Future[CesaCall] =
+    get(s"Return $taxYearEnd", s"${individualPath(utr)}/return/$taxYearEnd")
+
+  /** Any resource under the individual, e.g. `designatory-details/trade`, `account/tax-years`, `signals`. */
+  def individualResource(utr: String, label: String, subPath: String)(using HeaderCarrier): Future[CesaCall] =
+    get(label, s"${individualPath(utr)}/$subPath")
+
   /** Follow a `links` href returned by CESA. Only relative paths are followed, always against [[baseUrl]]. */
   def followLink(label: String, href: String)(using HeaderCarrier): Future[CesaCall] =
     if href.startsWith("/") && !href.startsWith("//") then get(label, href)

@@ -25,7 +25,9 @@ import play.api.inject.bind
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.test.FakeRequest
 import play.api.test.Helpers.*
-import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.ArchitectureOption
+import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.downstream.TaxHistorySource
+import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.{ArchitectureOption, CesaTaxHistory, CesaTaxYear}
+import uk.gov.hmrc.http.HeaderCarrier
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.models.{NrsJourney, PaymentJourney, UploadJourney}
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.repositories.{
   NrsJourneyRepository,
@@ -52,6 +54,19 @@ class CalculationsControllerSpec
     def upsert(journey: NrsJourney): Future[Unit] = Future.successful(())
     def get(id: String): Future[Option[NrsJourney]] = Future.successful(None)
 
+  private val cesaHistory = CesaTaxHistory(
+    utr          = "dds-calc-user",
+    source       = "test",
+    taxpayerName = Some("Mr Hugh Man"),
+    tradeName    = None,
+    years        = Seq(CesaTaxYear("2016-17", declaredIncome = Some(BigDecimal(34000)), taxPaid = Some(BigDecimal(3000))))
+  )
+
+  private val fakeTaxHistory = new TaxHistorySource:
+    def sourceLabel: String = "test"
+    def fetch(utr: String, taxYears: Seq[String])(using HeaderCarrier): Future[Either[String, CesaTaxHistory]] =
+      Future.successful(Right(cesaHistory.copy(utr = utr)))
+
   override def fakeApplication(): Application =
     new GuiceApplicationBuilder()
       .disable[uk.gov.hmrc.mongo.play.PlayMongoModule]
@@ -59,7 +74,8 @@ class CalculationsControllerSpec
       .overrides(
         bind[UploadJourneyRepository].toInstance(stubRepo),
         bind[PaymentJourneyRepository].toInstance(stubPaymentRepo),
-        bind[NrsJourneyRepository].toInstance(stubNrsRepo)
+        bind[NrsJourneyRepository].toInstance(stubNrsRepo),
+        bind[TaxHistorySource].toInstance(fakeTaxHistory)
       )
       .build()
 
@@ -71,6 +87,24 @@ class CalculationsControllerSpec
       status(result) shouldBe Status.OK
       contentAsString(result) should include("Config-driven calculations")
       contentAsString(result) should include("Option 4")
+
+  "GET /calculations/start-with-cesa" should:
+    "start Option 2 with the CESA history and fill in what CESA knows" in:
+      val result = controller.startWithCesa("dds-calc-user")(FakeRequest())
+      status(result) shouldBe Status.SEE_OTHER
+      redirectLocation(result).exists(_.endsWith("/calculations/config")) shouldBe true
+
+      val id = session(result).get("calculationsId").get
+      val state = app.injector.instanceOf[uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.session.CalculationsSessionService].get(id).get
+      state.option shouldBe ArchitectureOption.RatesAndQuestions
+      state.cesa.map(_.utr) shouldBe Some("dds-calc-user")
+      state.answers.get("taxAlreadyPaid__2016-17") shouldBe Some("3000")
+      state.answers.get("alreadyDeclaredIncome__2016-17") shouldBe Some("34000")
+
+    "send an invalid UTR back to the CESA page" in:
+      val result = controller.startWithCesa("../etc")(FakeRequest())
+      status(result) shouldBe Status.SEE_OTHER
+      redirectLocation(result).exists(_.endsWith("/cesa")) shouldBe true
 
   "GET /calculations/start/rates-and-questions" should:
     "create a session and redirect to config" in:

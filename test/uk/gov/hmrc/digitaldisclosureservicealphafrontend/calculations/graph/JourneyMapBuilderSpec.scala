@@ -50,8 +50,10 @@ class JourneyMapBuilderSpec extends AnyWordSpec with Matchers:
         Some(Seq("Self_employment_profit (calculations.graph.journey.usage.gross)"))
       tasks("allowances").questions.find(_.id == "blindPersonEligible").map(_.usedIn.size) shouldBe Some(1)
       tasks("year-declared").questions.find(_.id == "taxAlreadyPaid").map(_.usedIn) shouldBe Some(Seq("Tax_already_paid"))
-      journey.notInEstimate.map(_.id) should contain allOf ("alreadyDeclaredIncome", "foreignTaxPaid", "cgtResidentialProperty")
+      journey.notInEstimate.map(_.id) should contain allOf ("foreignTaxPaid", "cgtResidentialProperty")
       journey.notInEstimate.map(_.id) should not contain "dividends"
+      journey.notInEstimate.map(_.id) should not contain "alreadyDeclaredIncome"
+      tasks("year-declared").questions.find(_.id == "alreadyDeclaredIncome").map(_.usedIn) shouldBe Some(Seq("Already_declared_income"))
 
     "place Option 1's fixed per-year questions in a year task" in:
       val journey = journeyFor(fixedPack)

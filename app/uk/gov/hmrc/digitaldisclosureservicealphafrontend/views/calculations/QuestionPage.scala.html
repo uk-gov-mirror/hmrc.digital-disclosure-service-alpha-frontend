@@ -14,6 +14,7 @@
  * limitations under the License.
  *@
 
+@import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.format.Formats
 @import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.{Answers, QuestionType, ResolvedQuestion, SessionState}
 @import uk.gov.hmrc.govukfrontend.views.html.components._
 
@@ -47,6 +48,13 @@
       .getOrElse(messages("calculations.question.caption.multi", state.rateCatalog.taxYears.mkString(", ")))
 }
 
+@* CESA's figures for this year, shown on the questions they fill in ("We can see you paid £X"). *@
+@cesaYear = @{
+    if (Seq("alreadyDeclaredIncome", "taxAlreadyPaid").contains(question.template.id))
+        question.taxYear.flatMap(year => state.cesa.flatMap(_.forYear(year))).filter(y => y.taxPaid.isDefined || y.declaredIncome.isDefined)
+    else None
+}
+
 @layout(pageTitle = Some(question.title)) {
 
     @govukBackLink(BackLink(href = backHref, content = Text(messages("calculations.back"))))
@@ -59,6 +67,22 @@
     }
 
     <span class="govuk-caption-m">@caption</span>
+
+    @cesaYear.map { y =>
+        <div class="govuk-inset-text" id="cesa-figures">
+            <p class="govuk-body govuk-!-font-weight-bold">@{messages("calculations.cesa.question.heading", y.taxYear)}</p>
+            <ul class="govuk-list">
+                @y.declaredIncome.map { v => <li>@{messages("calculations.cesa.question.declared", Formats.gbp(v))}</li> }
+                @y.taxCharged.map { v => <li>@{messages("calculations.cesa.question.charged", Formats.gbp(v))}</li> }
+                @y.taxPaid.map { v => <li><strong>@{messages("calculations.cesa.question.paid", Formats.gbp(v))}</strong></li> }
+                @y.outstanding.filter(_ > 0).map { v => <li>@{messages("calculations.cesa.question.owed", Formats.gbp(v))}</li> }
+            </ul>
+            @if(y.repaymentSignals.nonEmpty) {
+                <p class="govuk-body">@{messages("calculations.cesa.question.hold", y.repaymentSignals.map(_.label).mkString(", "))}</p>
+            }
+            <p class="govuk-body">@{messages("calculations.cesa.question.filled")}</p>
+        </div>
+    }
 
     @formHelper(action = uk.gov.hmrc.digitaldisclosureservicealphafrontend.controllers.routes.CalculationsController.submitQuestion(question.id, taskId)) {
 

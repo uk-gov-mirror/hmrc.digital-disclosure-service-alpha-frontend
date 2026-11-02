@@ -21,7 +21,9 @@ final case class SessionState(
   option    : ArchitectureOption,
   config    : CalculationsConfig,
   answers   : Map[String, String] = Map.empty,
-  downstream: Option[DownstreamFetchSummary] = None
+  downstream: Option[DownstreamFetchSummary] = None,
+  /** Self Assessment history from CESA, when the calculation was started from the CESA page. */
+  cesa      : Option[CesaTaxHistory] = None
 ):
   def rateCatalog    : RateCatalog     = config.rateCatalog
   def questionPack   : QuestionPack    = config.questionPack

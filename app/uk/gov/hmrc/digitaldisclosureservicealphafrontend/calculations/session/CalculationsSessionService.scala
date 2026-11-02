@@ -17,10 +17,11 @@
 package uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.session
 
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.config.{ConfigValidator, ConfigViolation, DefaultConfigs}
-import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.downstream.DownstreamRateCatalogService
+import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.downstream.{CesaPrefill, DownstreamRateCatalogService}
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.{
   ArchitectureOption,
   CalculationsConfig,
+  CesaTaxHistory,
   DownstreamFetchSummary,
   SessionState
 }
@@ -45,7 +46,7 @@ class CalculationsSessionService @Inject() (
 
   def restoreDefaults(state: SessionState)(using HeaderCarrier): Future[SessionState] =
     defaultConfig(state.option).map: (config, downstream) =>
-      store.save(state.copy(config = config, answers = Map.empty, downstream = downstream))
+      store.save(withCesaAnswers(state.copy(config = config, answers = Map.empty, downstream = downstream)))
 
   /**
     * Validates and applies edited config. Answers are cleared because they may not fit the new journey.
@@ -60,13 +61,27 @@ class CalculationsSessionService @Inject() (
     val questions = if state.option.questionsEditable then questionJson else state.config.questionJson
     ConfigValidator
       .validate(rateJson, questions, calculationJson)
-      .map(config => store.save(state.copy(config = config, answers = Map.empty)))
+      .map(config => store.save(withCesaAnswers(state.copy(config = config, answers = Map.empty))))
 
   def saveAnswer(state: SessionState, questionId: String, value: String): SessionState =
     store.save(state.copy(answers = state.answers + (questionId -> value)))
 
   def clearAnswers(state: SessionState): SessionState =
-    store.save(state.copy(answers = Map.empty))
+    store.save(withCesaAnswers(state.copy(answers = Map.empty)))
+
+  /** Puts the CESA history on the session and fills in what it knows. Answers already given are kept. */
+  def attachCesaHistory(state: SessionState, history: CesaTaxHistory): SessionState =
+    val filled = CesaPrefill.answers(history, state.rateCatalog.taxYears)
+    store.save(
+      state.copy(
+        answers = filled ++ state.answers,
+        cesa    = Some(history.copy(prefilled = filled.keys.toSeq.sorted))
+      )
+    )
+
+  /** Answers are cleared on config changes and resets; CESA's are put back, since the history still applies. */
+  private def withCesaAnswers(state: SessionState): SessionState =
+    state.cesa.fold(state)(h => state.copy(answers = CesaPrefill.answers(h, state.rateCatalog.taxYears) ++ state.answers))
 
   private def defaultConfig(
     option: ArchitectureOption

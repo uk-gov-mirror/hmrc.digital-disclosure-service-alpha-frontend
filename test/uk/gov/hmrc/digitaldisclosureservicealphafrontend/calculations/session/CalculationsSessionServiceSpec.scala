@@ -21,7 +21,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.libs.json.Json
 import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.CalculationsFixtures.*
-import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.ArchitectureOption
+import uk.gov.hmrc.digitaldisclosureservicealphafrontend.calculations.model.{ArchitectureOption, CesaTaxHistory, CesaTaxYear}
 import uk.gov.hmrc.http.HeaderCarrier
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -45,6 +45,22 @@ class CalculationsSessionServiceSpec extends AnyWordSpec with Matchers with Scal
       state.downstream.map(_.yearsFetched) shouldBe Some(Seq("2017-18"))
       state.rateCatalog.forYear("2017-18").map(_.value("personalAllowance")) shouldBe Some(BigDecimal(11850))
       state.config.rateJson should include("11850")
+
+  "CalculationsSessionService.attachCesaHistory" should:
+    "store the history, fill in CESA's answers, and keep them when the config is saved" in:
+      val service = newService()
+      val history = CesaTaxHistory("u", "CESA", None, None, Seq(CesaTaxYear("2016-17", declaredIncome = Some(BigDecimal(34000)), taxPaid = Some(BigDecimal(3000)))))
+      val started = service.start(ArchitectureOption.RatesAndQuestions).futureValue
+      val withAnswer = service.saveAnswer(started, "taxAlreadyPaid__2016-17", "2500")
+
+      val attached = service.attachCesaHistory(withAnswer, history)
+      attached.cesa.map(_.utr) shouldBe Some("u")
+      attached.answers.get("alreadyDeclaredIncome__2016-17") shouldBe Some("34000")
+      attached.answers.get("taxAlreadyPaid__2016-17") shouldBe Some("2500") // the user's own answer wins
+
+      val saved = service.updateConfig(attached, fullConfig.rateJson, fullConfig.questionJson, fullConfig.calculationJson)
+      saved.map(_.answers.get("taxAlreadyPaid__2016-17")) shouldBe Right(Some("3000"))
+      saved.map(_.answers.get("alreadyDeclaredIncome__2016-17")) shouldBe Right(Some("34000"))
 
   "CalculationsSessionService.updateConfig" should:
     "apply valid config and clear answers" in:
